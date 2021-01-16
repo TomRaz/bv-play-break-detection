@@ -1,0 +1,8 @@
+pytube
+opencv-python
+matplotlib
+imutils
+torch
+torchvision
+tensorflow==2.4.0
+scikit-learn
