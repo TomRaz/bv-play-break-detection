@@ -2,13 +2,13 @@ import os
 import shutil
 
 from cv2 import cv2
-
+from os import listdir
+from os.path import isfile, join
 CUR_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 def tag_dir(dir_path):
-    from os import listdir
-    from os.path import isfile, join
+
     onlyfiles = [f for f in listdir(dir_path) if isfile(join(dir_path, f)) if f.endswith(".mp4")]
     onlyfiles.sort(key=lambda x:int(x.split("-")[0]))
     os.makedirs(os.path.join(dir_path, "tagged"), exist_ok=True)
@@ -44,4 +44,4 @@ def tag_dir(dir_path):
         # print(cv2.waitKey())
 
 
-tag_dir(os.path.join(CUR_DIR, "Winners Beach Volleyball Court 1 05012021 Part 2"))
+tag_dir(os.path.join(CUR_DIR, "data", "Winners Beach Volleyball Court 1 05012021 Part 2"))

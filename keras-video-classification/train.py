@@ -2,7 +2,11 @@
 # python train.py --dataset Sports-Type-Classifier/data --model model/activity.model --label-bin model/lb.pickle --epochs 50
 
 # set the matplotlib backend so figures can be saved in the background
+import os
+
 import matplotlib
+from tqdm import tqdm
+
 matplotlib.use("Agg")
 
 # import the necessary packages
@@ -15,7 +19,6 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import SGD
-from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from imutils import paths
@@ -24,75 +27,94 @@ import numpy as np
 import argparse
 import pickle
 import cv2
-import os
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-d", "--dataset", required=True,
-	help="path to input dataset")
+                help="path to input dataset")
 ap.add_argument("-m", "--model", required=True,
-	help="path to output serialized model")
+                help="path to output serialized model")
 ap.add_argument("-l", "--label-bin", required=True,
-	help="path to output label binarizer")
+                help="path to output label binarizer")
 ap.add_argument("-e", "--epochs", type=int, default=25,
-	help="# of epochs to train our network for")
+                help="# of epochs to train our network for")
 ap.add_argument("-p", "--plot", type=str, default="plot.png",
-	help="path to output loss/accuracy plot")
+                help="path to output loss/accuracy plot")
 args = vars(ap.parse_args())
 
 # initialize the set of labels from the spots activity dataset we are
 # going to train our network on
-LABELS = set(["weight_lifting", "tennis", "football"])
 
 # grab the list of images in our dataset directory, then initialize
 # the list of data (i.e., images) and class images
-print("[INFO] loading images...")
-imagePaths = list(paths.list_images(args["dataset"]))
-data = []
-labels = []
+print("[INFO] loading vids...")
+vids = list(paths.list_files("/Users/tom/Projects/bv-play-break-detection/data/Winners Beach Volleyball Court 1 05012021 Part 2/tagged", validExts=(".mp4",)))
+vids = vids[:20]
 
-# loop over the image paths
-for imagePath in imagePaths:
-	# extract the class label from the filename
-	label = imagePath.split(os.path.sep)[-2]
+(vids_train, vids_test) = train_test_split(vids, test_size=0.25, random_state=42)
 
-	# if the label of the current image is not part of of the labels
-	# are interested in, then ignore the image
-	if label not in LABELS:
-		continue
 
-	# load the image, convert it to RGB channel ordering, and resize
-	# it to be a fixed 224x224 pixels, ignoring aspect ratio
-	image = cv2.imread(imagePath)
-	image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-	image = cv2.resize(image, (224, 224))
+def get_from_vid(vid):
+    data = []
+    labels = []
+    # extract the class label from the filename
+    file_name = os.path.basename(vid)
+    label = 0 if "break" in file_name else 1
 
-	# update the data and labels lists, respectively
-	data.append(image)
-	labels.append(label)
+    # label = imagePath.split(os.path.sep)[-2]
+    vs = cv2.VideoCapture(vid)
+    count = 0
+    while True:
+        (grabbed, frame) = vs.read()
+        if not grabbed:
+            break
+
+        # load the image, convert it to RGB channel ordering, and resize
+        # it to be a fixed 224x224 pixels, ignoring aspect ratio
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = cv2.resize(image, (224, 224))
+        count += 30  # i.e. at 30 fps, this advances one second
+        vs.set(1, count)
+        # update the data and labels lists, respectively
+        data.append(image)
+        labels.append(label)
+    return data, labels
+
+
+trainX = []
+trainY = []
+
+testX = []
+testY = []
+
+for vid in tqdm(vids_train):
+    d, l = get_from_vid(vid)
+    trainX.extend(d)
+    trainY.extend(l)
+
+for vid in tqdm(vids_test):
+    d, l = get_from_vid(vid)
+    testX.extend(d)
+    testY.extend(l)
+
+
 
 # convert the data and labels to NumPy arrays
-data = np.array(data)
-labels = np.array(labels)
+trainX = np.array(trainX)
+trainY = np.array(trainY)
 
-# perform one-hot encoding on the labels
-lb = LabelBinarizer()
-labels = lb.fit_transform(labels)
-
-# partition the data into training and testing splits using 75% of
-# the data for training and the remaining 25% for testing
-(trainX, testX, trainY, testY) = train_test_split(data, labels,
-	test_size=0.25, stratify=labels, random_state=42)
+testX = np.array(testX)
+testY = np.array(testY)
 
 # initialize the training data augmentation object
 trainAug = ImageDataGenerator(
-	rotation_range=30,
-	zoom_range=0.15,
-	width_shift_range=0.2,
-	height_shift_range=0.2,
-	shear_range=0.15,
-	horizontal_flip=True,
-	fill_mode="nearest")
+    rotation_range=30,
+    zoom_range=0.15,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.15,
+    horizontal_flip=True,
+    fill_mode="nearest")
 
 # initialize the validation/testing data augmentation object (which
 # we'll be adding mean subtraction to)
@@ -108,7 +130,7 @@ valAug.mean = mean
 # load the ResNet-50 network, ensuring the head FC layer sets are left
 # off
 baseModel = ResNet50(weights="imagenet", include_top=False,
-	input_tensor=Input(shape=(224, 224, 3)))
+                     input_tensor=Input(shape=(224, 224, 3)))
 
 # construct the head of the model that will be placed on top of the
 # the base model
@@ -117,7 +139,7 @@ headModel = AveragePooling2D(pool_size=(7, 7))(headModel)
 headModel = Flatten(name="flatten")(headModel)
 headModel = Dense(512, activation="relu")(headModel)
 headModel = Dropout(0.5)(headModel)
-headModel = Dense(len(lb.classes_), activation="softmax")(headModel)
+headModel = Dense(1, activation="sigmoid")(headModel)
 
 # place the head FC model on top of the base model (this will become
 # the actual model we will train)
@@ -126,32 +148,31 @@ model = Model(inputs=baseModel.input, outputs=headModel)
 # loop over all layers in the base model and freeze them so they will
 # *not* be updated during the training process
 for layer in baseModel.layers:
-	layer.trainable = False
+    layer.trainable = False
 
 # compile our model (this needs to be done after our setting our
 # layers to being non-trainable)
 print("[INFO] compiling model...")
 opt = SGD(lr=1e-4, momentum=0.9, decay=1e-4 / args["epochs"])
-# TODO: change to binary_crossentropy
-model.compile(loss="categorical_crossentropy", optimizer=opt,
-	metrics=["accuracy"])
+model.compile(loss="binary_crossentropy", optimizer=opt,
+              metrics=["accuracy"])
 
 # train the head of the network for a few epochs (all other layers
 # are frozen) -- this will allow the new FC layers to start to become
 # initialized with actual "learned" values versus pure random
 print("[INFO] training head...")
 H = model.fit(
-	x=trainAug.flow(trainX, trainY, batch_size=32),
-	steps_per_epoch=len(trainX) // 32,
-	validation_data=valAug.flow(testX, testY),
-	validation_steps=len(testX) // 32,
-	epochs=args["epochs"])
+    x=trainAug.flow(trainX, trainY, batch_size=32),
+    steps_per_epoch=len(trainX) // 32,
+    validation_data=valAug.flow(testX, testY),
+    validation_steps=len(testX) // 32,
+    epochs=args["epochs"])
 
 # evaluate the network
 print("[INFO] evaluating network...")
 predictions = model.predict(x=testX.astype("float32"), batch_size=32)
-print(classification_report(testY.argmax(axis=1),
-	predictions.argmax(axis=1), target_names=lb.classes_))
+# print(classification_report(testY.argmax(axis=0),
+#                             predictions.argmax(axis=0), ))
 
 # plot the training loss and accuracy
 N = args["epochs"]
@@ -172,6 +193,6 @@ print("[INFO] serializing network...")
 model.save(args["model"], save_format="h5")
 
 # serialize the label binarizer to disk
-f = open(args["label_bin"], "wb")
-f.write(pickle.dumps(lb))
-f.close()
+# f = open(args["label_bin"], "wb")
+# f.write(pickle.dumps(lb))
+# f.close()
