@@ -4,6 +4,8 @@ matplotlib
 imutils
 torch
 torchvision
-tensorflow==2.4.0
+tensorflow==2.5.0
 scikit-learn
 tqdm
+google-api-python-client
+oauth2client

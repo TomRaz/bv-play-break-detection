@@ -44,4 +44,4 @@ def tag_dir(dir_path):
         # print(cv2.waitKey())
 
 
-tag_dir(os.path.join(CUR_DIR, "data", "Winners Beach Volleyball Court 1 05012021 Part 2"))
+tag_dir(os.path.join(CUR_DIR, "data", "Winners Beach Volleyball Court 1 04122020 Part 4"))
